@@ -432,9 +432,8 @@ if __name__ == '__main__':
     loader = torch.utils.data.DataLoader(sprite, batch_size=batch_size, shuffle=True, num_workers=4)
     device = torch.device('cuda:%d' % (1) if torch.cuda.is_available() else 'cpu')
     vae = DisentangledVAE(z_dim=32, step=256, factorised=True,device=device)
-    test_f = torch.rand(1,256, device=device)
-    test_f = test_f.unsqueeze(1).expand(1, 8, 256)
-    trainer = Trainer(vae, sprite, sprite_test, loader ,None, test_f,batch_size=25, epochs=500, learning_rate=0.0002, device=device,
+
+    trainer = Trainer(vae, sprite, sprite_test, loader ,None,batch_size=25, epochs=500, learning_rate=0.0002, device=device,
                   recon_path=log_recon, sample_path=log_sample, checkpoints='%s/%s-disentangled-vae.model'%(model_path, 'vanilla'))
     trainer.load_checkpoint()
     trainer.train_model()
