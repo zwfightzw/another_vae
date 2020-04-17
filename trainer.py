@@ -436,6 +436,23 @@ class Trainer(object):
            self.model.train()
        print("Training is complete")
 
+import datetime
+import dateutil.tz
+
+starttime = datetime.datetime.now()
+now = datetime.datetime.now(dateutil.tz.tzlocal())
+time_dir = now.strftime('%Y_%m_%d_%H_%M_%S')
+base_path = './%s/%s'%('Trainer', time_dir)
+model_path = '%s/model' % (base_path)
+log_recon = '%s/recon' % (base_path)
+log_sample = '%s/sample' % (base_path)
+log_path = '%s/log_info.txt' % (base_path)
+if not os.path.exists(model_path):
+    os.makedirs(model_path)
+if not os.path.exists(log_recon):
+    os.makedirs(log_recon)
+if not os.path.exists(log_sample):
+    os.makedirs(log_sample)
 
 sprite = Sprites('./dataset/lpc-dataset/train/', 6687)
 sprite_test = Sprites('./dataset/lpc-dataset/test/', 873)
@@ -445,6 +462,7 @@ device = torch.device('cuda:%d' % (0) if torch.cuda.is_available() else 'cpu')
 vae = DisentangledVAE(f_dim=256, z_dim=32, step=256, factorised=True,device=device)
 test_f = torch.rand(1,256, device=device)
 test_f = test_f.unsqueeze(1).expand(1, 8, 256)
-trainer = Trainer(vae, sprite, sprite_test, loader ,None, test_f,batch_size=25, epochs=500, learning_rate=0.0002, device=device)
+trainer = Trainer(vae, sprite, sprite_test, loader ,None, test_f,batch_size=25, epochs=500, learning_rate=0.0002, device=device,
+                  recon_path=log_recon, sample_path=log_sample, checkpoints=model_path)
 trainer.load_checkpoint()
 trainer.train_model()
