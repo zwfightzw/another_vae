@@ -1,3 +1,11 @@
+import os
+import torchvision
+import torch.utils.data
+import torch.optim as optim
+import numpy as np
+from tqdm import *
+import torch.utils.data as data
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,31 +13,36 @@ import torch.nn.functional as F
 
 # A block consisting of convolution, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
 class ConvUnit(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True, nonlinearity=nn.LeakyReLU(0.2)):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, batchnorm=True,
+                 nonlinearity=nn.LeakyReLU(0.2)):
         super(ConvUnit, self).__init__()
         if batchnorm is True:
             self.model = nn.Sequential(
-                    nn.Conv2d(in_channels, out_channels, kernel, stride, padding),
-                    nn.BatchNorm2d(out_channels), nonlinearity)
+                nn.Conv2d(in_channels, out_channels, kernel, stride, padding),
+                nn.BatchNorm2d(out_channels), nonlinearity)
         else:
             self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel, stride, padding), nonlinearity)
 
     def forward(self, x):
         return self.model(x)
 
+
 # A block consisting of a transposed convolution, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
 class ConvUnitTranspose(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, out_padding=0, batchnorm=True, nonlinearity=nn.LeakyReLU(0.2)):
+    def __init__(self, in_channels, out_channels, kernel, stride=1, padding=0, out_padding=0, batchnorm=True,
+                 nonlinearity=nn.LeakyReLU(0.2)):
         super(ConvUnitTranspose, self).__init__()
         if batchnorm is True:
             self.model = nn.Sequential(
-                    nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding),
-                    nn.BatchNorm2d(out_channels), nonlinearity)
+                nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding),
+                nn.BatchNorm2d(out_channels), nonlinearity)
         else:
-            self.model = nn.Sequential(nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding), nonlinearity)
+            self.model = nn.Sequential(
+                nn.ConvTranspose2d(in_channels, out_channels, kernel, stride, padding, out_padding), nonlinearity)
 
     def forward(self, x):
         return self.model(x)
+
 
 # A block consisting of an affine layer, batch normalization (optional) followed by a nonlinearity (defaults to Leaky ReLU)
 class LinearUnit(nn.Module):
@@ -37,11 +50,11 @@ class LinearUnit(nn.Module):
         super(LinearUnit, self).__init__()
         if batchnorm is True:
             self.model = nn.Sequential(
-                    nn.Linear(in_features, out_features),
-                    nn.BatchNorm1d(out_features), nonlinearity)
+                nn.Linear(in_features, out_features),
+                nn.BatchNorm1d(out_features), nonlinearity)
         else:
             self.model = nn.Sequential(
-                    nn.Linear(in_features, out_features), nonlinearity)
+                nn.Linear(in_features, out_features), nonlinearity)
 
     def forward(self, x):
         return self.model(x)
@@ -59,21 +72,21 @@ class DisentangledVAE(nn.Module):
             The hidden state has dimension 512 and z has dimension 32
 
         CONVOLUTIONAL ENCODER:
-            The convolutional encoder consists of 4 convolutional layers with 256 layers and a kernel size of 5 
-            Each convolution is followed by a batch normalization layer and a LeakyReLU(0.2) nonlinearity. 
+            The convolutional encoder consists of 4 convolutional layers with 256 layers and a kernel size of 5
+            Each convolution is followed by a batch normalization layer and a LeakyReLU(0.2) nonlinearity.
             For the 3,64,64 frames (all image dimensions are in channel, width, height) in the sprites dataset the following dimension changes take place
-            
+
             3,64,64 -> 256,64,64 -> 256,32,32 -> 256,16,16 -> 256,8,8 (where each -> consists of a convolution, batch normalization followed by LeakyReLU(0.2))
 
             The 8,8,256 tensor is unrolled into a vector of size 8*8*256 which is then made to undergo the following tansformations
-            
+
             8*8*256 -> 4096 -> 2048 (where each -> consists of an affine transformation, batch normalization followed by LeakyReLU(0.2))
 
         APPROXIMATE POSTERIOR FOR f:
             The approximate posterior is parameterized by a bidirectional LSTM that takes the entire sequence of transformed x_ts (after being fed into the convolutional encoder)
             as input in each timestep. The hidden layer dimension is 512
 
-            Then the features from the unit corresponding to the last timestep of the forward LSTM and the unit corresponding to the first timestep of the 
+            Then the features from the unit corresponding to the last timestep of the forward LSTM and the unit corresponding to the first timestep of the
             backward LSTM (as shown in the diagram in the paper) are concatenated and fed to two affine layers (without any added nonlinearity) to compute
             the mean and variance of the Gaussian posterior for f
 
@@ -99,19 +112,19 @@ class DisentangledVAE(nn.Module):
         CONVOLUTIONAL DECODER FOR CONDITIONAL DISTRIBUTION p(x_t | f, z_t)
             The architecture is symmetric to that of the convolutional encoder. The vector f is concatenated to each z_t, which then undergoes two subsequent
             affine transforms, causing the following change in dimensions
-            
+
             256 + 32 -> 4096 -> 8*8*256 (where each -> consists of an affine transformation, batch normalization followed by LeakyReLU(0.2))
 
-            The 8*8*256 tensor is reshaped into a tensor of shape 256,8,8 and then undergoes the following dimension changes 
+            The 8*8*256 tensor is reshaped into a tensor of shape 256,8,8 and then undergoes the following dimension changes
 
             256,8,8 -> 256,16,16 -> 256,32,32 -> 256,64,64 -> 3,64,64 (where each -> consists of a transposed convolution, batch normalization followed by LeakyReLU(0.2)
             with the exception of the last layer that does not have batchnorm and uses tanh nonlinearity)
 
     Hyperparameters:
         f_dim: Dimension of the content encoding f. f has the shape (batch_size, f_dim)
-        z_dim: Dimension of the dynamics encoding of a frame z_t. z has the shape (batch_size, frames, z_dim) 
-        frames: Number of frames in the video. 
-        hidden_dim: Dimension of the hidden states of the RNNs 
+        z_dim: Dimension of the dynamics encoding of a frame z_t. z has the shape (batch_size, frames, z_dim)
+        frames: Number of frames in the video.
+        hidden_dim: Dimension of the hidden states of the RNNs
         nonlinearity: Nonlinearity used in convolutional and deconvolutional layers, defaults to LeakyReLU(0.2)
         in_size: Height and width of each frame in the video (assumed square)
         step: Number of channels in the convolutional and deconvolutional layers
@@ -123,11 +136,11 @@ class DisentangledVAE(nn.Module):
         The model is trained with the Adam optimizer with a learning rate of 0.0002, betas of 0.9 and 0.999, with a batch size of 25 for 200 epochs
 
     """
-    def __init__(self, f_dim=256, z_dim=32, conv_dim=2048, step=256, in_size=64, hidden_dim=512,
+
+    def __init__(self, z_dim=32, conv_dim=2048, step=256, in_size=64, hidden_dim=512,
                  frames=8, nonlinearity=None, factorised=False, device=torch.device('cpu')):
         super(DisentangledVAE, self).__init__()
         self.device = device
-        self.f_dim = f_dim
         self.z_dim = z_dim
         self.frames = frames
         self.conv_dim = conv_dim
@@ -143,11 +156,6 @@ class DisentangledVAE(nn.Module):
         self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
         # POSTERIOR DISTRIBUTION NETWORKS
         # -------------------------------
-        self.f_lstm = nn.LSTM(self.conv_dim, self.hidden_dim, 1,
-                              bidirectional=True, batch_first=True)
-        # TODO: Check if only one affine transform is sufficient. Paper says distribution is parameterised by LSTM
-        self.f_mean = LinearUnit(self.hidden_dim * 2, self.f_dim, False)
-        self.f_logvar = LinearUnit(self.hidden_dim * 2, self.f_dim, False)
 
         if self.factorised is True:
             # Paper says : 1 Hidden Layer MLP. Last layers shouldn't have any nonlinearities
@@ -156,29 +164,29 @@ class DisentangledVAE(nn.Module):
             self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
         else:
             # TODO: Check if one affine transform is sufficient. Paper says distribution is parameterised by RNN over LSTM. Last layer shouldn't have any nonlinearities
-            self.z_lstm = nn.LSTM(self.conv_dim + self.f_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
+            self.z_lstm = nn.LSTM(self.conv_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
             self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
             # Each timestep is for each z so no reshaping and feature mixing
             self.z_mean = nn.Linear(self.hidden_dim, self.z_dim)
             self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
 
         self.conv = nn.Sequential(
-                ConvUnit(3, step, 5, 1, 2), # 3*64*64 -> 256*64*64
-                ConvUnit(step, step, 5, 2, 2), # 256,64,64 -> 256,32,32
-                ConvUnit(step, step, 5, 2, 2), # 256,32,32 -> 256,16,16
-                ConvUnit(step, step, 5, 2, 2), # 256,16,16 -> 256,8,8
-                )
+            ConvUnit(3, step, 5, 1, 2),  # 3*64*64 -> 256*64*64
+            ConvUnit(step, step, 5, 2, 2),  # 256,64,64 -> 256,32,32
+            ConvUnit(step, step, 5, 2, 2),  # 256,32,32 -> 256,16,16
+            ConvUnit(step, step, 5, 2, 2),  # 256,16,16 -> 256,8,8
+        )
         self.final_conv_size = in_size // 8
         self.conv_fc = nn.Sequential(LinearUnit(step * (self.final_conv_size ** 2), self.conv_dim * 2),
-                LinearUnit(self.conv_dim * 2, self.conv_dim))
+                                     LinearUnit(self.conv_dim * 2, self.conv_dim))
 
-        self.deconv_fc = nn.Sequential(LinearUnit(self.f_dim + self.z_dim, self.conv_dim * 2, False),
-                LinearUnit(self.conv_dim * 2, step * (self.final_conv_size ** 2), False))
+        self.deconv_fc = nn.Sequential(LinearUnit(self.z_dim, self.conv_dim * 2, False),
+                                       LinearUnit(self.conv_dim * 2, step * (self.final_conv_size ** 2), False))
         self.deconv = nn.Sequential(
-                ConvUnitTranspose(step, step, 5, 2, 2, 1),
-                ConvUnitTranspose(step, step, 5, 2, 2, 1),
-                ConvUnitTranspose(step, step, 5, 2, 2, 1),
-                ConvUnitTranspose(step, 3, 5, 1, 2, 0, nonlinearity=nn.Tanh()))
+            ConvUnitTranspose(step, step, 5, 2, 2, 1),
+            ConvUnitTranspose(step, step, 5, 2, 2, 1),
+            ConvUnitTranspose(step, step, 5, 2, 2, 1),
+            ConvUnitTranspose(step, 3, 5, 1, 2, 0, nonlinearity=nn.Tanh()))
 
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
@@ -189,7 +197,7 @@ class DisentangledVAE(nn.Module):
 
     # If random sampling is true, reparametrization occurs else z_t is just set to the mean
     def sample_z(self, batch_size, random_sampling=True):
-        z_out = None # This will ultimately store all z_s in the format [batch_size, frames, z_dim]
+        z_out = None  # This will ultimately store all z_s in the format [batch_size, frames, z_dim]
         z_means = None
         z_logvars = None
 
@@ -218,7 +226,6 @@ class DisentangledVAE(nn.Module):
 
         return z_means, z_logvars, z_out
 
-
     def encode_frames(self, x):
         # The frames are unrolled into the batch dimension for batch processing such that x goes from
         # [batch_size, frames, channels, size, size] to [batch_size * frames, channels, size, size]
@@ -231,8 +238,8 @@ class DisentangledVAE(nn.Module):
         x = x.view(-1, self.frames, self.conv_dim)
         return x
 
-    def decode_frames(self, zf):
-        x = self.deconv_fc(zf)
+    def decode_frames(self, z):
+        x = self.deconv_fc(z)
         x = x.view(-1, self.step, self.final_conv_size, self.final_conv_size)
         x = self.deconv(x)
         return x.view(-1, self.frames, 3, self.in_size, self.in_size)
@@ -241,31 +248,18 @@ class DisentangledVAE(nn.Module):
         # Reparametrization occurs only if random sampling is set to true, otherwise mean is returned
         if random_sampling is True:
             eps = torch.randn_like(logvar)
-            std = torch.exp(0.5*logvar)
-            z = mean + eps*std
+            std = torch.exp(0.5 * logvar)
+            z = mean + eps * std
             return z
         else:
             return mean
 
-    def encode_f(self, x):
-        lstm_out, _ = self.f_lstm(x)
-        # The features of the last timestep of the forward RNN is stored at the end of lstm_out in the first half, and the features
-        # of the "first timestep" of the backward RNN is stored at the beginning of lstm_out in the second half
-        # For a detailed explanation, check: https://gist.github.com/ceshine/bed2dadca48fe4fe4b4600ccce2fd6e1
-        backward = lstm_out[:, 0, self.hidden_dim:2 * self.hidden_dim]
-        frontal = lstm_out[:, self.frames - 1, 0:self.hidden_dim]
-        lstm_out = torch.cat((frontal, backward), dim=1)
-        mean = self.f_mean(lstm_out)
-        logvar = self.f_logvar(lstm_out)
-        return mean, logvar, self.reparameterize(mean, logvar, self.training)
-
-    def encode_z(self, x, f):
+    def encode_z(self, x):
         if self.factorised is True:
             features = self.z_inter(x)
         else:
             # The expansion is done to match the dimension of x and f, used for concatenating f to each x_t
-            f_expand = f.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-            lstm_out, _ = self.z_lstm(torch.cat((x, f_expand), dim=2))
+            lstm_out, _ = self.z_lstm(x)
             features, _ = self.z_rnn(lstm_out)
         mean = self.z_mean(features)
         logvar = self.z_logvar(features)
@@ -274,9 +268,157 @@ class DisentangledVAE(nn.Module):
     def forward(self, x):
         z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
         conv_x = self.encode_frames(x)
-        f_mean, f_logvar, f = self.encode_f(conv_x)
-        z_mean, z_logvar, z = self.encode_z(conv_x, f)
-        f_expand = f.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z, f_expand), dim=2)
-        recon_x = self.decode_frames(zf)
-        return f_mean, f_logvar, f, z_mean, z_logvar, z, z_mean_prior, z_logvar_prior, recon_x
+        z_mean, z_logvar, z = self.encode_z(conv_x)
+        recon_x = self.decode_frames(z)
+        return z_mean, z_logvar, z, z_mean_prior, z_logvar_prior, recon_x
+
+
+__all__ = ['loss_fn', 'Trainer']
+
+
+class Sprites(data.Dataset):
+    def __init__(self, path, size):
+        self.path = path
+        self.length = size
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        item = torch.load(self.path + '/%d.sprite' % (idx + 1))
+        return item
+
+
+def loss_fn(original_seq, recon_seq, z_post_mean, z_post_logvar, z_prior_mean, z_prior_logvar):
+    """
+    Loss function consists of 3 parts, the reconstruction term that is the MSE loss between the generated and the original images
+    the KL divergence of f, and the sum over the KL divergence of each z_t, with the sum divided by batch_size
+
+    Loss = {mse + KL of f + sum(KL of z_t)} / batch_size
+    Prior of f is a spherical zero mean unit variance Gaussian and the prior of each z_t is a Gaussian whose mean and variance
+    are given by the LSTM
+    """
+    batch_size = original_seq.size(0)
+    mse = F.mse_loss(recon_seq, original_seq, reduction='sum')
+    z_post_var = torch.exp(z_post_logvar)
+    z_prior_var = torch.exp(z_prior_logvar)
+    kld_z = 0.5 * torch.sum(
+        z_prior_logvar - z_post_logvar + ((z_post_var + torch.pow(z_post_mean - z_prior_mean, 2)) / z_prior_var) - 1)
+    return (mse + kld_z) / batch_size, kld_z / batch_size
+
+
+class Trainer(object):
+    def __init__(self, model, train, test, trainloader, testloader,
+                 epochs=100, batch_size=64, learning_rate=0.001, nsamples=1, sample_path='./sample',
+                 recon_path='./recon/', transfer_path='./transfer/',
+                 checkpoints='model.pth', style1='image1.sprite', style2='image2.sprite',
+                 device=torch.device('cuda:0')):
+        self.trainloader = trainloader
+        self.train = train
+        self.test = test
+        self.testloader = testloader
+        self.start_epoch = 0
+        self.epochs = epochs
+        self.device = device
+        self.batch_size = batch_size
+        self.model = model
+        self.model.to(device)
+        self.learning_rate = learning_rate
+        self.checkpoints = checkpoints
+        self.optimizer = optim.Adam(self.model.parameters(), self.learning_rate)
+        self.samples = nsamples
+        self.sample_path = sample_path
+        self.recon_path = recon_path
+        self.transfer_path = transfer_path
+        self.epoch_losses = []
+
+    def save_checkpoint(self, epoch):
+        torch.save({
+            'epoch': epoch + 1,
+            'state_dict': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'losses': self.epoch_losses},
+            self.checkpoints)
+
+    def load_checkpoint(self):
+        try:
+            print("Loading Checkpoint from '{}'".format(self.checkpoints))
+            checkpoint = torch.load(self.checkpoints)
+            self.start_epoch = checkpoint['epoch']
+            self.model.load_state_dict(checkpoint['state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            self.epoch_losses = checkpoint['losses']
+            print("Resuming Training From Epoch {}".format(self.start_epoch))
+        except:
+            print("No Checkpoint Exists At '{}'.Start Fresh Training".format(self.checkpoints))
+            self.start_epoch = 0
+
+    def sample_frames(self, epoch):
+        with torch.no_grad():
+            _, _, test_z = self.model.sample_z(1, random_sampling=False)
+            print(test_z.shape)
+            recon_x = self.model.decode_frames(test_z)
+            recon_x = recon_x.view(self.samples * 8, 3, 64, 64)
+            torchvision.utils.save_image(recon_x, '%s/epoch%d.png' % (self.sample_path, epoch))
+
+    def recon_frame(self, epoch, original):
+        with torch.no_grad():
+            _, _, _, _, _, recon = self.model(original)
+            image = torch.cat((original, recon), dim=0)
+            image = image.view(2 * 8, 3, 64, 64)
+            os.makedirs(os.path.dirname('%s/epoch%d.png' % (self.recon_path, epoch)), exist_ok=True)
+            torchvision.utils.save_image(image, '%s/epoch%d.png' % (self.recon_path, epoch))
+
+    def train_model(self):
+        self.model.train()
+        self.sample_frames(0 + 1)
+        sample = self.test[int(torch.randint(0, len(self.test), (1,)).item())]
+        sample = torch.unsqueeze(sample, 0)
+        sample = sample.to(self.device)
+        self.sample_frames(0 + 1)
+        self.recon_frame(0 + 1, sample)
+        for epoch in range(self.start_epoch, self.epochs):
+            losses = []
+            kld_fs = []
+            kld_zs = []
+            print("Running Epoch : {}".format(epoch + 1))
+            for i, dataitem in tqdm(enumerate(self.trainloader, 1)):
+                data = dataitem
+                data = data.to(self.device)
+                self.optimizer.zero_grad()
+                z_post_mean, z_post_logvar, z, z_prior_mean, z_prior_logvar, recon_x = self.model(
+                    data)
+                loss, kld_z = loss_fn(data, recon_x, z_post_mean, z_post_logvar, z_prior_mean,
+                                             z_prior_logvar)
+                print(loss.item())
+                loss.backward()
+                self.optimizer.step()
+                losses.append(loss.item())
+                kld_zs.append(kld_z.item())
+            meanloss = np.mean(losses)
+            meanz = np.mean(kld_zs)
+            self.epoch_losses.append(meanloss)
+            print("Epoch {} : Average Loss: {} KL of z : {}".format(epoch + 1, meanloss, meanz))
+            self.save_checkpoint(epoch)
+            self.model.eval()
+            self.sample_frames(epoch + 1)
+            sample = self.test[int(torch.randint(0, len(self.test), (1,)).item())]
+            sample = torch.unsqueeze(sample, 0)
+            sample = sample.to(self.device)
+            self.sample_frames(epoch + 1)
+            self.recon_frame(epoch + 1, sample)
+            self.model.train()
+        print("Training is complete")
+
+
+sprite = Sprites('./dataset/lpc-dataset/train/', 6687)
+sprite_test = Sprites('./dataset/lpc-dataset/test/', 873)
+batch_size = 25
+loader = torch.utils.data.DataLoader(sprite, batch_size=batch_size, shuffle=True, num_workers=4)
+device = torch.device('cuda:%d' % (0) if torch.cuda.is_available() else 'cpu')
+vae = DisentangledVAE(z_dim=32, step=256, factorised=True, device=device)
+
+trainer = Trainer(vae, sprite, sprite_test, loader, None, batch_size=25, epochs=500, learning_rate=0.0002,
+                  device=device)
+trainer.load_checkpoint()
+trainer.train_model()
