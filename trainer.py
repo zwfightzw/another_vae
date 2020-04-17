@@ -408,8 +408,7 @@ class Trainer(object):
            kld_fs = []
            kld_zs = []
            print("Running Epoch : {}".format(epoch+1))
-           for i,dataitem in tqdm(enumerate(self.trainloader,1)):
-               data = dataitem
+           for i, data in enumerate(self.trainloader, 1):
                data = data.to(self.device)
                self.optimizer.zero_grad()
                f_mean, f_logvar, f, z_post_mean, z_post_logvar, z, z_prior_mean, z_prior_logvar, recon_x = self.model(data)
