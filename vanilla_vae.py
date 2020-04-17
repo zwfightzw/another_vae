@@ -436,6 +436,6 @@ device = torch.device('cuda:%d' % (0) if torch.cuda.is_available() else 'cpu')
 vae = DisentangledVAE(z_dim=32, step=256, factorised=True, device=device)
 
 trainer = Trainer(vae, sprite, sprite_test, loader, None, batch_size=25, epochs=500, learning_rate=0.0002,
-                  device=device, recon_path=log_recon, sample_path=log_sample, checkpoints=model_path)
+                  device=device, recon_path=log_recon, sample_path=log_sample, checkpoints='%s/%s-disentangled-vae.model'%(model_path, 'vanilla'))
 trainer.load_checkpoint()
 trainer.train_model()

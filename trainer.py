@@ -463,6 +463,6 @@ vae = DisentangledVAE(f_dim=256, z_dim=32, step=256, factorised=True,device=devi
 test_f = torch.rand(1,256, device=device)
 test_f = test_f.unsqueeze(1).expand(1, 8, 256)
 trainer = Trainer(vae, sprite, sprite_test, loader ,None, test_f,batch_size=25, epochs=500, learning_rate=0.0002, device=device,
-                  recon_path=log_recon, sample_path=log_sample, checkpoints=model_path)
+                  recon_path=log_recon, sample_path=log_sample, checkpoints='%s/%s-disentangled-vae.model'%(model_path, 'vanilla'))
 trainer.load_checkpoint()
 trainer.train_model()
